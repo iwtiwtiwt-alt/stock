@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>台灣上市股票日成交資訊看板</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0f172a',
+                        cardBg: '#1e293b',
+                        borderBg: '#334155',
+                        stockUp: '#ef4444',   // 台灣股市上漲：紅
+                        stockDown: '#22c55e', // 台灣股市下跌：綠
+                        stockFlat: '#94a3b8'  // 平盤：灰
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #334155;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #475569;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased bg-darkBg text-slate-100">
+
+    <!-- Navbar Header -->
+    <header class="border-b border-borderBg bg-cardBg/80 backdrop-blur sticky top-0 z-50 px-4 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="bg-red-500/20 text-red-500 p-2.5 rounded-xl border border-red-500/30">
+                <i class="fa-solid me-0.5 fa-chart-line text-xl"></i>
+            </div>
+            <div>
+                <h1 class="text-lg lg:text-xl font-bold tracking-wide text-white flex items-center gap-2">
+                    台灣上市股票日成交資訊看板
+                    <span class="text-xs font-normal bg-blue-500/20 text-blue-400 border border-blue-500/30 px-2 py-0.5 rounded-full">TWSE Realtime</span>
+                </h1>
+                <p class="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                    <span>最後更新時間：<span id="update-time" class="text-slate-300">載入中...</span></span>
+                    <span id="data-status-badge" class="hidden px-2 py-0.5 rounded text-[10px] font-semibold"></span>
+                </p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+            <button id="btn-refresh" onclick="fetchStockData()" class="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 active:scale-95 text-sm font-medium px-4 py-2 rounded-lg transition border border-slate-600 shadow-sm">
+                <i id="refresh-icon" class="fa-solid fa-rotate"></i>
+                <span>重新整理</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 lg:p-6 space-y-6">
+
+        <!-- Alert Notification Box -->
+        <div id="alert-banner" class="hidden p-4 rounded-xl border flex items-start gap-3 transition-all duration-300">
+            <i id="alert-icon" class="fa-solid fa-circle-info text-xl mt-0.5"></i>
+            <div class="flex-1">
+                <h4 id="alert-title" class="font-bold text-sm"></h4>
+                <p id="alert-msg" class="text-xs mt-0.5 text-slate-300"></p>
+            </div>
+            <button onclick="dismissAlert()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+
+        <!-- KPI Summary Cards -->
+        <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <!-- Card 1: Total Listed Stocks -->
+            <div class="bg-cardBg border border-borderBg rounded-xl p-4 flex items-center justify-between shadow-lg">
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">總上市檔數</p>
+                    <h3 id="kpi-total-count" class="text-2xl font-extrabold text-white mt-1">--</h3>
+                    <p class="text-[11px] text-slate-400 mt-1">普通股與全市場個股</p>
+                </div>
+                <div class="bg-blue-500/10 text-blue-400 p-3 rounded-lg border border-blue-500/20">
+                    <i class="fa-solid fa-list-ol text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Card 2: Total Market Volume -->
+            <div class="bg-cardBg border border-borderBg rounded-xl p-4 flex items-center justify-between shadow-lg">
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">總成交金額</p>
+                    <h3 id="kpi-total-value" class="text-2xl font-extrabold text-amber-400 mt-1">-- <span class="text-xs text-slate-400 font-normal">億元</span></h3>
+                    <p class="text-[11px] text-slate-400 mt-1">日成交總額統計</p>
+                </div>
+                <div class="bg-amber-500/10 text-amber-400 p-3 rounded-lg border border-amber-500/20">
+                    <i class="fa-solid fa-sack-dollar text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Card 3: Up Count -->
+            <div class="bg-cardBg border border-borderBg rounded-xl p-4 flex items-center justify-between shadow-lg">
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">上漲家數</p>
+                    <h3 id="kpi-up-count" class="text-2xl font-extrabold text-stockUp mt-1">--</h3>
+                    <p id="kpi-up-ratio" class="text-[11px] text-slate-400 mt-1">佔市場比例 --%</p>
+                </div>
+                <div class="bg-red-500/10 text-stockUp p-3 rounded-lg border border-red-500/20">
+                    <i class="fa-solid fa-arrow-trend-up text-xl"></i>
+                </div>
+            </div>
+
+            <!-- Card 4: Down Count -->
+            <div class="bg-cardBg border border-borderBg rounded-xl p-4 flex items-center justify-between shadow-lg">
+                <div>
+                    <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">下跌家數</p>
+                    <h3 id="kpi-down-count" class="text-2xl font-extrabold text-stockDown mt-1">--</h3>
+                    <p id="kpi-down-ratio" class="text-[11px] text-slate-400 mt-1">佔市場比例 --%</p>
+                </div>
+                <div class="bg-green-500/10 text-stockDown p-3 rounded-lg border border-green-500/20">
+                    <i class="fa-solid fa-arrow-trend-down text-xl"></i>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts & Top Movers Section -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Main Bar Chart (Top Volume / Value) -->
+            <div class="lg:col-span-2 bg-cardBg border border-borderBg rounded-xl p-5 shadow-lg flex flex-col justify-between">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+                    <div>
+                        <h2 class="text-base font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-chart-simple text-blue-400"></i>
+                            熱門個股成交排行 Top 8
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">市場關注焦點個股視覺化比較</p>
+                    </div>
+                    <!-- Chart Mode Switcher Buttons -->
+                    <div class="bg-slate-800 p-1 rounded-lg border border-slate-700 flex text-xs">
+                        <button id="btn-chart-value" onclick="updateChartMode('value')" class="px-3 py-1.5 rounded-md font-medium transition bg-blue-600 text-white shadow">成交金額 (億)</button>
+                        <button id="btn-chart-volume" onclick="updateChartMode('volume')" class="px-3 py-1.5 rounded-md font-medium transition text-slate-400 hover:text-white">成交股數 (萬張)</button>
+                    </div>
+                </div>
+                <!-- Canvas Container -->
+                <div class="relative w-full h-64 lg:h-72">
+                    <canvas id="topChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Top Gainers / Losers Cards -->
+            <div class="bg-cardBg border border-borderBg rounded-xl p-5 shadow-lg flex flex-col">
+                <div class="flex items-center justify-between border-b border-borderBg pb-3 mb-3">
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-fire text-amber-500"></i>
+                        漲跌幅排行榜
+                    </h2>
+                    <!-- Tab Switcher -->
+                    <div class="flex text-xs bg-slate-800 p-1 rounded-lg border border-slate-700">
+                        <button id="btn-tab-gainers" onclick="switchRankTab('gainers')" class="px-2.5 py-1 rounded font-medium bg-red-500/20 text-red-400 border border-red-500/30">漲幅榜</button>
+                        <button id="btn-tab-losers" onclick="switchRankTab('losers')" class="px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white">跌幅榜</button>
+                    </div>
+                </div>
+
+                <!-- Gainers / Losers List -->
+                <div id="rank-list" class="flex-1 divide-y divide-borderBg/50 overflow-y-auto max-h-64 lg:max-h-none space-y-1">
+                    <!-- Populated via JS -->
+                </div>
+            </div>
+        </section>
+
+        <!-- Interactive Data Table Section -->
+        <section class="bg-cardBg border border-borderBg rounded-xl p-5 shadow-lg space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-base font-bold text-white flex items-center gap-2">
+                        <i class="fa-solid fa-table-list text-emerald-400"></i>
+                        上市股票交易行情明細
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-0.5">點擊表頭可快速進行多欄位正逆排序</p>
+                </div>
+
+                <!-- Search Input -->
+                <div class="relative w-full sm:w-72">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="text" id="search-input" oninput="onSearchChange()" placeholder="搜尋股票代號或名稱 (如 2330)..." 
+                        class="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition">
+                </div>
+            </div>
+
+            <!-- Table Wrapper -->
+            <div class="overflow-x-auto border border-borderBg rounded-lg">
+                <table class="w-full text-xs text-left text-slate-300">
+                    <thead class="bg-slate-800/90 text-slate-400 uppercase font-semibold border-b border-borderBg select-none">
+                        <tr>
+                            <th onclick="sortTable('Code')" class="px-4 py-3 cursor-pointer hover:bg-slate-700/50 transition">
+                                代號 <i id="sort-icon-Code" class="fa-solid fa-sort text-slate-500 ml-1"></i>
+                            </th>
+                            <th class="px-4 py-3">名稱</th>
+                            <th class="px-4 py-3 text-right">開盤價</th>
+                            <th class="px-4 py-3 text-right">最高價</th>
+                            <th class="px-4 py-3 text-right">最低價</th>
+                            <th onclick="sortTable('ClosingPrice')" class="px-4 py-3 text-right cursor-pointer hover:bg-slate-700/50 transition">
+                                收盤價 <i id="sort-icon-ClosingPrice" class="fa-solid fa-sort text-slate-500 ml-1"></i>
+                            </th>
+                            <th onclick="sortTable('ChangeRatio')" class="px-4 py-3 text-right cursor-pointer hover:bg-slate-700/50 transition">
+                                漲跌幅 <i id="sort-icon-ChangeRatio" class="fa-solid fa-sort text-slate-500 ml-1"></i>
+                            </th>
+                            <th onclick="sortTable('TradeVolume')" class="px-4 py-3 text-right cursor-pointer hover:bg-slate-700/50 transition">
+                                成交股數 <i id="sort-icon-TradeVolume" class="fa-solid fa-sort text-slate-500 ml-1"></i>
+                            </th>
+                            <th onclick="sortTable('TradeValue')" class="px-4 py-3 text-right cursor-pointer hover:bg-slate-700/50 transition">
+                                成交金額 (元) <i id="sort-icon-TradeValue" class="fa-solid fa-sort text-slate-500 ml-1"></i>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody id="stock-tbody" class="divide-y divide-borderBg/60 bg-slate-900/40">
+                        <!-- Rows rendered via JS -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination Control Bar -->
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+                <div id="pagination-info">
+                    顯示第 <span id="page-start" class="font-medium text-white">0</span> 至 <span id="page-end" class="font-medium text-white">0</span> 筆，共 <span id="total-rows" class="font-medium text-white">0</span> 筆個股
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="btn-prev-page" onclick="changePage(-1)" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 rounded border border-slate-700 transition flex items-center gap-1">
+                        <i class="fa-solid fa-chevron-left"></i> 上一頁
+                    </button>
+                    <span class="px-2 font-medium">頁次 <span id="current-page" class="text-blue-400 font-bold">1</span> / <span id="total-pages">1</span></span>
+                    <button id="btn-next-page" onclick="changePage(1)" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:hover:bg-slate-800 text-slate-200 rounded border border-slate-700 transition flex items-center gap-1">
+                        下一頁 <i class="fa-solid fa-chevron-right"></i>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-borderBg bg-cardBg/40 py-4 px-4 text-center text-xs text-slate-500">
+        <p>資料來源：臺灣證券交易所 (TWSE) Open Data API | 本系統資料僅供參考，不構成投資建議。</p>
+    </footer>
+
+    <script>
+        /**
+         * Fallback Mock Data (15 Popular TWSE Stocks)
+         * Used if CORS proxy or TWSE API fails
+         */
+        const MOCK_STOCK_DATA = [
+            { Code: "2330", Name: "台積電", TradeVolume: "38520120", TradeValue: "37750000000", OpeningPrice: "975.00", HighestPrice: "985.00", LowestPrice: "970.00", ClosingPrice: "980.00", Change: "+10.00", Transaction: "42150" },
+            { Code: "2317", Name: "鴻海", TradeVolume: "45210000", TradeValue: "8137800000", OpeningPrice: "182.00", HighestPrice: "183.50", LowestPrice: "179.00", ClosingPrice: "180.00", Change: "-2.00", Transaction: "28400" },
+            { Code: "2454", Name: "聯發科", TradeVolume: "8950000", TradeValue: "11187500000", OpeningPrice: "1240.00", HighestPrice: "1260.00", LowestPrice: "1235.00", ClosingPrice: "1250.00", Change: "+15.00", Transaction: "18200" },
+            { Code: "2382", Name: "廣達", TradeVolume: "22300000", TradeValue: "6244000000", OpeningPrice: "278.00", HighestPrice: "283.00", LowestPrice: "276.00", ClosingPrice: "280.00", Change: "+3.50", Transaction: "16500" },
+            { Code: "2881", Name: "富邦金", TradeVolume: "18500000", TradeValue: "1665000000", OpeningPrice: "89.50", HighestPrice: "90.50", LowestPrice: "89.00", ClosingPrice: "90.00", Change: "+0.80", Transaction: "9800" },
+            { Code: "2882", Name: "國泰金", TradeVolume: "21200000", TradeValue: "1356800000", OpeningPrice: "63.80", HighestPrice: "64.20", LowestPrice: "63.50", ClosingPrice: "64.00", Change: "-0.30", Transaction: "11200" },
+            { Code: "2308", Name: "台達電", TradeVolume: "6800000", TradeValue: "2652000000", OpeningPrice: "388.00", HighestPrice: "392.00", LowestPrice: "386.00", ClosingPrice: "390.00", Change: "+4.00", Transaction: "7400" },
+            { Code: "2603", Name: "長榮", TradeVolume: "31500000", TradeValue: "5985000000", OpeningPrice: "188.00", HighestPrice: "192.00", LowestPrice: "186.50", ClosingPrice: "190.00", Change: "+2.50", Transaction: "21000" },
+            { Code: "3231", Name: "緯創", TradeVolume: "39800000", TradeValue: "4179000000", OpeningPrice: "106.00", HighestPrice: "107.00", LowestPrice: "104.00", ClosingPrice: "105.00", Change: "-1.50", Transaction: "23500" },
+            { Code: "2376", Name: "技嘉", TradeVolume: "14200000", TradeValue: "3692000000", OpeningPrice: "258.00", HighestPrice: "263.00", LowestPrice: "255.00", ClosingPrice: "260.00", Change: "+5.00", Transaction: "12800" },
+            { Code: "1519", Name: "華城", TradeVolume: "7600000", TradeValue: "4940000000", OpeningPrice: "640.00", HighestPrice: "660.00", LowestPrice: "630.00", ClosingPrice: "650.00", Change: "+18.00", Transaction: "14500" },
+            { Code: "2379", Name: "瑞昱", TradeVolume: "4200000", TradeValue: "2226000000", OpeningPrice: "535.00", HighestPrice: "538.00", LowestPrice: "525.00", ClosingPrice: "530.00", Change: "-6.00", Transaction: "6200" },
+            { Code: "2303", Name: "聯電", TradeVolume: "54200000", TradeValue: "2872600000", OpeningPrice: "53.20", HighestPrice: "53.50", LowestPrice: "52.80", ClosingPrice: "53.00", Change: "-0.20", Transaction: "26000" },
+            { Code: "3037", Name: "欣興", TradeVolume: "19800000", TradeValue: "3366000000", OpeningPrice: "168.00", HighestPrice: "172.00", LowestPrice: "166.50", ClosingPrice: "170.00", Change: "+3.00", Transaction: "15100" },
+            { Code: "2002", Name: "中鋼", TradeVolume: "28400000", TradeValue: "653200000", OpeningPrice: "23.10", HighestPrice: "23.20", LowestPrice: "22.95", ClosingPrice: "23.00", Change: "0.00", Transaction: "8900" }
+        ];
+
+        // Global State Variables
+        let rawStockData = [];
+        let filteredStockData = [];
+        let chartInstance = null;
+        let chartMode = 'value'; // 'value' or 'volume'
+        let activeRankTab = 'gainers'; // 'gainers' or 'losers'
+        
+        // Table Pagination & Sorting State
+        let currentPage = 1;
+        const pageSize = 15;
+        let sortField = 'TradeValue';
+        let sortDirection = 'desc'; // 'asc' or 'desc'
+
+        function initChart() {
+            const ctx = document.getElementById('topChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: '成交金額 (億元)',
+                        data: [],
+                        backgroundColor: 'rgba(59, 130, 246, 0.75)',
+                        borderColor: '#3b82f6',
+                        borderWidth: 1.5,
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return chartMode === 'value' 
+                                        ? `成交金額: ${context.parsed.y.toFixed(2)} 億元`
+                                        : `成交股數: ${context.parsed.y.toFixed(2)} 萬張`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8', font: { size: 11 } }
+                        },
+                        y: {
+                            grid: { color: '#334155', strokeDash: [3, 3] },
+                            ticks: { color: '#94a3b8', font: { size: 11 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        async function fetchStockData() {
+            const refreshIcon = document.getElementById('refresh-icon');
+            refreshIcon.classList.add('fa-spin');
+
+            const apiUrl = 'https://corsproxy.io/?https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=open_data';
+            const backupApiUrl = 'https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL';
+
+            let data = null;
+            let isMock = false;
+
+            try {
+                // Try primary CORS proxy endpoint
+                const res = await fetch(apiUrl, { cache: 'no-cache' });
+                if (!res.ok) throw new Error('CORS Proxy Response Not OK');
+                data = await res.json();
+            } catch (err) {
+                console.warn('Primary API fetch failed, trying direct TWSE openapi...', err);
+                try {
+                    const resBackup = await fetch(backupApiUrl, { cache: 'no-cache' });
+                    if (!resBackup.ok) throw new Error('Backup API Response Not OK');
+                    data = await resBackup.json();
+                } catch (backupErr) {
+                    console.warn('Backup API fetch failed, using offline fallback mock data.', backupErr);
+                    data = MOCK_STOCK_DATA;
+                    isMock = true;
+                }
+            }
+
+            refreshIcon.classList.remove('fa-spin');
+            processAndRenderData(data, isMock);
+        }
+
+        function processAndRenderData(data, isMock) {
+            // Standardize raw data fields & parse numeric values safely
+            rawStockData = data.map(item => {
+                const code = item.Code || item["證券代號"] || "";
+                const name = item.Name || item["證券名稱"] || "";
+                const tradeVolume = parseFloat((item.TradeVolume || item["成交股數"] || "0").toString().replace(/,/g, '')) || 0;
+                const tradeValue = parseFloat((item.TradeValue || item["成交金額"] || "0").toString().replace(/,/g, '')) || 0;
+                const openPrice = parseFloat((item.OpeningPrice || item["開盤價"] || "0").toString().replace(/,/g, '')) || 0;
+                const highPrice = parseFloat((item.HighestPrice || item["最高價"] || "0").toString().replace(/,/g, '')) || 0;
+                const lowPrice = parseFloat((item.LowestPrice || item["最低價"] || "0").toString().replace(/,/g, '')) || 0;
+                const closePrice = parseFloat((item.ClosingPrice || item["收盤價"] || "0").toString().replace(/,/g, '')) || 0;
+                
+                // Process Change field
+                let changeRaw = (item.Change || item["漲跌價差"] || "0").toString().replace(/,/g, '');
+                let changeVal = parseFloat(changeRaw) || 0;
+                if (changeRaw.includes('-')) changeVal = -Math.abs(changeVal);
+
+                // Calculate Change Ratio (%)
+                let prevClose = closePrice - changeVal;
+                let changeRatio = prevClose > 0 ? (changeVal / prevClose) * 100 : 0;
+
+                return {
+                    Code: code,
+                    Name: name,
+                    TradeVolume: tradeVolume,
+                    TradeValue: tradeValue,
+                    OpeningPrice: openPrice,
+                    HighestPrice: highPrice,
+                    LowestPrice: lowPrice,
+                    ClosingPrice: closePrice,
+                    Change: changeVal,
+                    ChangeRatio: changeRatio
+                };
+            }).filter(item => item.Code && item.Name && item.ClosingPrice > 0);
+
+            // Update UI status badge and Alert Banner
+            const statusBadge = document.getElementById('data-status-badge');
+            const now = new Date();
+            document.getElementById('update-time').innerText = now.toLocaleTimeString('zh-TW', { hour12: false });
+
+            if (isMock) {
+                statusBadge.innerText = "備用離線數據";
+                statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30";
+                showAlert('warning', '連線提示', '無法連接到證交所即時伺服器，目前已自動切換至離線模擬個股資料。');
+            } else {
+                statusBadge.innerText = "即時連線成功";
+                statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+                showAlert('success', '連線成功', `已成功載入台灣證券交易所全市場 ${rawStockData.length} 筆上市個股資訊。`);
+            }
+
+            // Render KPI & Visualizations
+            renderKPIs();
+            renderChart();
+            renderRankings();
+            
+            // Apply Search & Sort
+            onSearchChange();
+        }
+
+        function renderKPIs() {
+            const totalCount = rawStockData.length;
+            const totalValue = rawStockData.reduce((acc, curr) => acc + curr.TradeValue, 0);
+            
+            let upCount = 0;
+            let downCount = 0;
+            rawStockData.forEach(item => {
+                if (item.Change > 0) upCount++;
+                else if (item.Change < 0) downCount++;
+            });
+
+            const upRatio = totalCount > 0 ? ((upCount / totalCount) * 100).toFixed(1) : 0;
+            const downRatio = totalCount > 0 ? ((downCount / totalCount) * 100).toFixed(1) : 0;
+
+            document.getElementById('kpi-total-count').innerText = totalCount.toLocaleString();
+            document.getElementById('kpi-total-value').innerHTML = `${(totalValue / 100000000).toFixed(1)} <span class="text-xs text-slate-400 font-normal">億元</span>`;
+            document.getElementById('kpi-up-count').innerText = upCount.toLocaleString();
+            document.getElementById('kpi-up-ratio').innerText = `佔市場比例 ${upRatio}%`;
+            document.getElementById('kpi-down-count').innerText = downCount.toLocaleString();
+            document.getElementById('kpi-down-ratio').innerText = `佔市場比例 ${downRatio}%`;
+        }
+
+        function renderChart() {
+            if (!chartInstance) return;
+
+            // Sort top 8 by volume or value
+            const sorted = [...rawStockData].sort((a, b) => {
+                return chartMode === 'value' ? b.TradeValue - a.TradeValue : b.TradeVolume - a.TradeVolume;
+            }).slice(0, 8);
+
+            const labels = sorted.map(item => `${item.Name} (${item.Code})`);
+            const dataValues = sorted.map(item => {
+                return chartMode === 'value' 
+                    ? (item.TradeValue / 100000000)  // 億元
+                    : (item.TradeVolume / 1000000);   // 萬張 (1張=1000股)
+            });
+
+            chartInstance.data.labels = labels;
+            chartInstance.data.datasets[0].label = chartMode === 'value' ? '成交金額 (億元)' : '成交股數 (萬張)';
+            chartInstance.data.datasets[0].data = dataValues;
+            chartInstance.data.datasets[0].backgroundColor = chartMode === 'value' ? 'rgba(59, 130, 246, 0.75)' : 'rgba(245, 158, 11, 0.75)';
+            chartInstance.data.datasets[0].borderColor = chartMode === 'value' ? '#3b82f6' : '#f59e0b';
+            
+            chartInstance.update();
+        }
+
+        function updateChartMode(mode) {
+            chartMode = mode;
+            const btnValue = document.getElementById('btn-chart-value');
+            const btnVolume = document.getElementById('btn-chart-volume');
+
+            if (mode === 'value') {
+                btnValue.className = "px-3 py-1.5 rounded-md font-medium transition bg-blue-600 text-white shadow";
+                btnVolume.className = "px-3 py-1.5 rounded-md font-medium transition text-slate-400 hover:text-white";
+            } else {
+                btnVolume.className = "px-3 py-1.5 rounded-md font-medium transition bg-amber-600 text-white shadow";
+                btnValue.className = "px-3 py-1.5 rounded-md font-medium transition text-slate-400 hover:text-white";
+            }
+
+            renderChart();
+        }
+
+        function renderRankings() {
+            const listEl = document.getElementById('rank-list');
+            listEl.innerHTML = '';
+
+            let sorted = [...rawStockData];
+            if (activeRankTab === 'gainers') {
+                sorted.sort((a, b) => b.ChangeRatio - a.ChangeRatio);
+            } else {
+                sorted.sort((a, b) => a.ChangeRatio - b.ChangeRatio);
+            }
+
+            const top5 = sorted.slice(0, 5);
+
+            top5.forEach((item, index) => {
+                const isUp = item.Change > 0;
+                const isDown = item.Change < 0;
+                const textColor = isUp ? 'text-stockUp' : (isDown ? 'text-stockDown' : 'text-stockFlat');
+                const sign = isUp ? '+' : '';
+
+                const row = document.createElement('div');
+                row.className = "flex items-center justify-between py-2.5 px-2 hover:bg-slate-800/40 rounded transition";
+                row.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <span class="w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-bold ${index === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : 'bg-slate-800 text-slate-400'}">${index + 1}</span>
+                        <div>
+                            <p class="font-bold text-white text-xs">${item.Name} <span class="text-[10px] font-normal text-slate-400">(${item.Code})</span></p>
+                            <p class="text-[10px] text-slate-400">成交額: ${(item.TradeValue / 100000000).toFixed(2)} 億</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="font-bold text-xs ${textColor}">$${item.ClosingPrice.toFixed(2)}</p>
+                        <p class="text-[10px] font-medium ${textColor}">${sign}${item.ChangeRatio.toFixed(2)}%</p>
+                    </div>
+                `;
+                listEl.appendChild(row);
+            });
+        }
+
+        function switchRankTab(tab) {
+            activeRankTab = tab;
+            const btnGainers = document.getElementById('btn-tab-gainers');
+            const btnLosers = document.getElementById('btn-tab-losers');
+
+            if (tab === 'gainers') {
+                btnGainers.className = "px-2.5 py-1 rounded font-medium bg-red-500/20 text-red-400 border border-red-500/30";
+                btnLosers.className = "px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white";
+            } else {
+                btnLosers.className = "px-2.5 py-1 rounded font-medium bg-green-500/20 text-green-400 border border-green-500/30";
+                btnGainers.className = "px-2.5 py-1 rounded font-medium text-slate-400 hover:text-white";
+            }
+
+            renderRankings();
+        }
+
+        function onSearchChange() {
+            const query = document.getElementById('search-input').value.trim().toLowerCase();
+            filteredStockData = rawStockData.filter(item => {
+                return item.Code.toLowerCase().includes(query) || item.Name.toLowerCase().includes(query);
+            });
+
+            // Re-apply sorting
+            applySort();
+            currentPage = 1;
+            renderTable();
+        }
+
+        function sortTable(field) {
+            if (sortField === field) {
+                sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+            } else {
+                sortField = field;
+                sortDirection = 'desc'; // Default to high-to-low
+            }
+            updateSortIcons();
+            applySort();
+            renderTable();
+        }
+
+        function applySort() {
+            filteredStockData.sort((a, b) => {
+                let valA = a[sortField];
+                let valB = b[sortField];
+
+                if (typeof valA === 'string') {
+                    return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return sortDirection === 'asc' ? valA - valB : valB - valA;
+                }
+            });
+        }
+
+        function updateSortIcons() {
+            ['Code', 'ClosingPrice', 'ChangeRatio', 'TradeVolume', 'TradeValue'].forEach(field => {
+                const icon = document.getElementById(`sort-icon-${field}`);
+                if (!icon) return;
+                
+                if (field === sortField) {
+                    icon.className = sortDirection === 'asc' 
+                        ? 'fa-solid fa-sort-up text-blue-400 ml-1' 
+                        : 'fa-solid fa-sort-down text-blue-400 ml-1';
+                } else {
+                    icon.className = 'fa-solid fa-sort text-slate-500 ml-1';
+                }
+            });
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('stock-tbody');
+            tbody.innerHTML = '';
+
+            const totalRows = filteredStockData.length;
+            const totalPages = Math.ceil(totalRows / pageSize) || 1;
+
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+
+            const startIdx = (currentPage - 1) * pageSize;
+            const endIdx = Math.min(startIdx + pageSize, totalRows);
+            const pageData = filteredStockData.slice(startIdx, endIdx);
+
+            if (pageData.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="text-center py-8 text-slate-500">
+                            <i class="fa-solid fa-inbox text-2xl mb-2 block"></i>
+                            查無符合條件的股票資料
+                        </td>
+                    </tr>
+                `;
+            } else {
+                pageData.forEach(item => {
+                    const isUp = item.Change > 0;
+                    const isDown = item.Change < 0;
+                    const textColor = isUp ? 'text-stockUp' : (isDown ? 'text-stockDown' : 'text-stockFlat');
+                    const badgeBg = isUp ? 'bg-red-500/10 border-red-500/20' : (isDown ? 'bg-green-500/10 border-green-500/20' : 'bg-slate-800 border-slate-700');
+                    const sign = isUp ? '+' : '';
+
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-slate-800/50 transition border-b border-borderBg/40";
+                    tr.innerHTML = `
+                        <td class="px-4 py-3 font-mono font-bold text-blue-400">${item.Code}</td>
+                        <td class="px-4 py-3 font-medium text-white">${item.Name}</td>
+                        <td class="px-4 py-3 text-right font-mono">$${item.OpeningPrice.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-300">$${item.HighestPrice.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right font-mono text-slate-300">$${item.LowestPrice.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right font-mono font-bold ${textColor}">$${item.ClosingPrice.toFixed(2)}</td>
+                        <td class="px-4 py-3 text-right font-mono">
+                            <span class="inline-block px-2 py-0.5 rounded border text-[11px] font-semibold ${textColor} ${badgeBg}">
+                                ${sign}${item.Change.toFixed(2)} (${sign}${item.ChangeRatio.toFixed(2)}%)
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 text-right font-mono">${(item.TradeVolume / 1000).toLocaleString()} 千股</td>
+                        <td class="px-4 py-3 text-right font-mono text-amber-300 font-medium">$${item.TradeValue.toLocaleString()}</td>
+                    `;
+                    tbody.appendChild(tr);
+                });
+            }
+
+            // Update Pagination UI
+            document.getElementById('page-start').innerText = totalRows > 0 ? startIdx + 1 : 0;
+            document.getElementById('page-end').innerText = endIdx;
+            document.getElementById('total-rows').innerText = totalRows.toLocaleString();
+            document.getElementById('current-page').innerText = currentPage;
+            document.getElementById('total-pages').innerText = totalPages;
+
+            document.getElementById('btn-prev-page').disabled = currentPage === 1;
+            document.getElementById('btn-next-page').disabled = currentPage === totalPages || totalPages === 0;
+        }
+
+        function changePage(delta) {
+            currentPage += delta;
+            renderTable();
+        }
+
+        function showAlert(type, title, message) {
+            const banner = document.getElementById('alert-banner');
+            const titleEl = document.getElementById('alert-title');
+            const msgEl = document.getElementById('alert-msg');
+            const iconEl = document.getElementById('alert-icon');
+
+            banner.classList.remove('hidden', 'bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400', 'bg-amber-500/10', 'border-amber-500/30', 'text-amber-400');
+
+            if (type === 'success') {
+                banner.classList.add('bg-emerald-500/10', 'border-emerald-500/30', 'text-emerald-400');
+                iconEl.className = "fa-solid fa-circle-check text-xl mt-0.5";
+            } else {
+                banner.classList.add('bg-amber-500/10', 'border-amber-500/30', 'text-amber-400');
+                iconEl.className = "fa-solid fa-triangle-exclamation text-xl mt-0.5";
+            }
+
+            titleEl.innerText = title;
+            msgEl.innerText = message;
+        }
+
+        function dismissAlert() {
+            document.getElementById('alert-banner').classList.add('hidden');
+        }
+
+        window.onload = function() {
+            initChart();
+            fetchStockData();
+        };
+    </script>
+</body>
+</html>
